@@ -1,0 +1,7 @@
+{
+  "name": "SLAS v1.0 - Smart Leaf Area Scanner",
+  "description": "A professional clinical-laboratory application for precise leaf area scanning and analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
