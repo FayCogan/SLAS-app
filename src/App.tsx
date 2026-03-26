@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface AnalysisData {
   area: number;
+  perimeter: number;
   width: number;
   height: number;
   pixelsPerCm: number;
@@ -42,6 +43,7 @@ export default function App() {
 
   const [analysis, setAnalysis] = useState<AnalysisData>({
     area: 0,
+    perimeter: 0,
     width: 0,
     height: 0,
     pixelsPerCm: 100,
@@ -212,24 +214,51 @@ export default function App() {
     const imageData = hctx.getImageData(0, 0, width, height);
     const data = imageData.data;
     let leafPixels = 0;
+    let boundaryEdges = 0;
     let minX = width, maxX = 0, minY = height, maxY = 0;
-    const points: {x: number, y: number}[] = [];
-
-    const step = Math.max(1, Math.floor(width / 500));
-    for (let y = 0; y < height; y += step) {
-      for (let x = 0; x < width; x += step) {
+    
+    // Create a mask for green pixels
+    const mask = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4;
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
 
         if (g > r * 1.15 && g > b * 1.15 && g > 45) {
-          leafPixels += step * step;
+          mask[y * width + x] = 1;
+          leafPixels++;
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
           if (y > maxY) maxY = y;
-          if (Math.random() < 0.15) points.push({x, y});
+        }
+      }
+    }
+
+    // Calculate perimeter and collect boundary points for drawing
+    const boundaryPoints: {x: number, y: number}[] = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (mask[y * width + x] === 1) {
+          let isBoundary = false;
+          // Check 4-neighbors for perimeter
+          const neighbors = [
+            {nx: x + 1, ny: y}, {nx: x - 1, ny: y},
+            {nx: x, ny: y + 1}, {nx: x, ny: y - 1}
+          ];
+          
+          neighbors.forEach(({nx, ny}) => {
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || mask[ny * width + nx] === 0) {
+              boundaryEdges++;
+              isBoundary = true;
+            }
+          });
+
+          if (isBoundary && Math.random() < 0.3) {
+            boundaryPoints.push({x, y});
+          }
         }
       }
     }
@@ -237,32 +266,41 @@ export default function App() {
     // 2. Calculate Results
     const cmPerPixel = 1 / pixelsPerCm;
     const areaCm2 = leafPixels * (cmPerPixel ** 2);
+    const perimeterCm = boundaryEdges * cmPerPixel;
     const widthCm = (maxX - minX) * cmPerPixel;
     const heightCm = (maxY - minY) * cmPerPixel;
 
-    setAnalysis({
+    const result: AnalysisData = {
       area: areaCm2,
+      perimeter: perimeterCm,
       width: widthCm,
       height: heightCm,
       pixelsPerCm,
       isProcessed: true
-    });
+    };
+
+    setAnalysis(result);
 
     // Add to history
-    setHistory(prev => [{
-      area: areaCm2,
-      width: widthCm,
-      height: heightCm,
-      pixelsPerCm,
-      isProcessed: true
-    }, ...prev].slice(0, 10)); // Keep last 10
+    setHistory(prev => [result, ...prev].slice(0, 10));
 
     // 3. Draw Visuals
     dctx.drawImage(hiddenCanvas, 0, 0, width, height);
+    
+    // Draw Dark Green Fill
+    dctx.fillStyle = 'rgba(26, 71, 42, 0.6)'; // Darker green with transparency
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (mask[y * width + x] === 1) {
+          dctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+
     drawOxyGrid(dctx, width, height);
     
-    if (points.length > 0) {
-      drawGlowingContour(dctx, points, minX, maxX, minY, maxY);
+    if (boundaryPoints.length > 0) {
+      drawPreciseContour(dctx, mask, width, height, minX, maxX, minY, maxY);
       drawLobeTips(dctx, minX, maxX, minY, maxY);
     }
 
@@ -289,20 +327,27 @@ export default function App() {
     ctx.stroke();
   };
 
-  const drawGlowingContour = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], minX: number, maxX: number, minY: number, maxY: number) => {
+  const drawPreciseContour = (ctx: CanvasRenderingContext2D, mask: Uint8Array, w: number, h: number, minX: number, maxX: number, minY: number, maxY: number) => {
     ctx.strokeStyle = '#228B22';
-    ctx.lineWidth = 4;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = '#228B22';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    points.sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
-    ctx.moveTo(points[0].x, points[0].y);
-    points.forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.closePath();
+    
+    // Draw boundary pixels
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (mask[y * w + x] === 1) {
+          const isBoundary = 
+            x === 0 || x === w - 1 || y === 0 || y === h - 1 ||
+            mask[y * w + (x + 1)] === 0 || mask[y * w + (x - 1)] === 0 ||
+            mask[(y + 1) * w + x] === 0 || mask[(y - 1) * w + x] === 0;
+          
+          if (isBoundary) {
+            ctx.rect(x, y, 1, 1);
+          }
+        }
+      }
+    }
     ctx.stroke();
-    ctx.shadowBlur = 0;
   };
 
   const drawLobeTips = (ctx: CanvasRenderingContext2D, minX: number, maxX: number, minY: number, maxY: number) => {
@@ -567,10 +612,21 @@ export default function App() {
 
               <div className="space-y-4">
                 <div className="bg-[#F8F9F8] rounded-2xl p-6 border border-neutral-100 group transition-all hover:bg-white hover:shadow-xl hover:shadow-green-50/50">
-                  <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-2">Total Surface Area</span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-5xl font-light text-[#1A472A]">{analysis.area.toFixed(2)}</span>
-                    <span className="text-sm font-bold text-[#228B22]">cm²</span>
+                  <div className="grid grid-cols-1 gap-6">
+                    <div>
+                      <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-2">Total Surface Area</span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-5xl font-light text-[#1A472A]">{analysis.area.toFixed(2)}</span>
+                        <span className="text-sm font-bold text-[#228B22]">cm²</span>
+                      </div>
+                    </div>
+                    <div className="pt-4 border-t border-neutral-100">
+                      <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-2">Leaf Perimeter</span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-light text-[#1A472A]">{analysis.perimeter.toFixed(2)}</span>
+                        <span className="text-sm font-bold text-[#228B22]">cm</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -605,7 +661,7 @@ export default function App() {
                     <div key={idx} className="bg-neutral-50 rounded-xl p-3 border border-neutral-100 flex items-center justify-between">
                       <div className="flex flex-col">
                         <span className="text-[8px] font-bold text-neutral-400 uppercase">Scan #{history.length - idx}</span>
-                        <span className="text-xs font-bold text-[#1A472A]">{item.area.toFixed(2)} cm²</span>
+                        <span className="text-xs font-bold text-[#1A472A]">{item.area.toFixed(2)} cm² | {item.perimeter.toFixed(1)} cm</span>
                       </div>
                       <div className="text-[8px] font-medium text-neutral-400 text-right">
                         W: {item.width.toFixed(1)}cm<br/>
