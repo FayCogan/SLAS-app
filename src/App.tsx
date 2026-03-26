@@ -53,6 +53,7 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hiddenCanvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
@@ -155,6 +156,35 @@ export default function App() {
 
     // Trigger Analysis
     setTimeout(() => processCapturedFrame(), 100);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    setIsLive(false);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const hiddenCanvas = hiddenCanvasRef.current;
+        if (!hiddenCanvas) return;
+
+        hiddenCanvas.width = img.width;
+        hiddenCanvas.height = img.height;
+        const hctx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+        if (!hctx) return;
+
+        hctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+        hctx.drawImage(img, 0, 0);
+        
+        processCapturedFrame();
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const processCapturedFrame = useCallback(() => {
@@ -325,6 +355,13 @@ export default function App() {
         {/* Left: Display Area (Live or Captured) */}
         <div className="flex-grow h-[50vh] lg:h-full bg-[#F8F9F8] relative overflow-hidden flex items-center justify-center">
           <canvas ref={hiddenCanvasRef} className="hidden" />
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept="image/*" 
+            onChange={handleFileUpload}
+          />
           
           {isLive ? (
             <div className="w-full h-full relative">
@@ -446,21 +483,39 @@ export default function App() {
 
               <div className="space-y-4">
                 {isLive ? (
-                  <button 
-                    onClick={capturePhoto}
-                    className="w-full bg-[#1A472A] hover:bg-[#228B22] text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 shadow-xl shadow-green-100 transition-all"
-                  >
-                    <Camera className="w-5 h-5" />
-                    Capture Frame
-                  </button>
+                  <div className="grid grid-cols-1 gap-3">
+                    <button 
+                      onClick={capturePhoto}
+                      className="w-full bg-[#1A472A] hover:bg-[#228B22] text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 shadow-xl shadow-green-100 transition-all"
+                    >
+                      <Camera className="w-5 h-5" />
+                      Capture Frame
+                    </button>
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-600 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 transition-all"
+                    >
+                      <Download className="w-5 h-5 rotate-180" />
+                      Upload Image
+                    </button>
+                  </div>
                 ) : (
-                  <button 
-                    onClick={() => setIsLive(true)}
-                    className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-600 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 transition-all"
-                  >
-                    <FlipHorizontal className="w-5 h-5" />
-                    Retake Sample
-                  </button>
+                  <div className="grid grid-cols-1 gap-3">
+                    <button 
+                      onClick={() => setIsLive(true)}
+                      className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-600 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 transition-all"
+                    >
+                      <FlipHorizontal className="w-5 h-5" />
+                      Retake Sample
+                    </button>
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-600 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 transition-all"
+                    >
+                      <Download className="w-5 h-5 rotate-180" />
+                      Upload New Image
+                    </button>
+                  </div>
                 )}
 
                 <div className="bg-neutral-50 rounded-2xl p-4 border border-neutral-100 space-y-4">
